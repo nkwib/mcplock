@@ -130,6 +130,10 @@ function formatReport(result: VerifyResult): string {
       continue;
     }
     lines.push(`✗ ${report.server}: DRIFT`);
+    if (report.command) {
+      lines.push(`    command: ${report.command.locked}`);
+      lines.push(`         ->  ${report.command.live}`);
+    }
     for (const name of report.added) lines.push(`    added:   ${name}`);
     for (const name of report.removed) lines.push(`    removed: ${name}`);
     for (const change of report.changed) {

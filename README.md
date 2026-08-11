@@ -49,6 +49,8 @@ Per tool: `name`, `title`, `description`, `inputSchema`, `outputSchema`, `annota
 
 Descriptions are included deliberately. They are the primary poisoning vector: model-facing prose that changes behavior without touching any schema. A pin that skips descriptions gates nothing.
 
+`verify` also compares the command and args it was pointed at against the ones recorded in the lockfile. Tool definitions are only meaningful if they came from the binary you approved, so swapping the command behind a pinned server name is reported as drift even when the replacement advertises byte-identical tools.
+
 ## Lockfile format
 
 `mcp.lock` is pretty-printed JSON containing the full canonicalized definition next to each hash, so drift shows up in PR review as a readable diff, not just a changed digest:

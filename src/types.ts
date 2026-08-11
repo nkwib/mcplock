@@ -44,8 +44,15 @@ export interface ChangedTool {
   paths: string[];
 }
 
+/** The pinned server was reached through a different command than the one locked. */
+export interface CommandDrift {
+  locked: string;
+  live: string;
+}
+
 export interface ServerDriftReport {
   server: string;
+  command: CommandDrift | null;
   added: string[];
   removed: string[];
   changed: ChangedTool[];

@@ -83,6 +83,24 @@ describe('verifyServers', () => {
     expect(result.reports[0]!.changed[0]!.paths).toEqual(['inputSchema.properties.query.type']);
   });
 
+  it('catches a swapped command even when the tools are identical', async () => {
+    const lock = await lockServers([fixture()]);
+    // Same fixture, reached through a different argv: the definitions match
+    // byte for byte, but this is not the binary that was approved.
+    const swapped: ServerSpec = {
+      name: 'fixture',
+      command: process.execPath,
+      args: ['--title=mcplock-fixture', FIXTURE],
+    };
+    const result = await verifyServers(lock, [swapped]);
+    expect(result.clean).toBe(false);
+    expect(result.reports[0]!.changed).toEqual([]);
+    expect(result.reports[0]!.command).toMatchObject({
+      locked: `${process.execPath} ${FIXTURE}`,
+      live: `${process.execPath} --title=mcplock-fixture ${FIXTURE}`,
+    });
+  });
+
   it('catches added and removed tools', async () => {
     const lock = await lockServers([fixture()]);
     const extra = await verifyServers(lock, [fixture('extra')]);

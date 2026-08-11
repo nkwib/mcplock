@@ -66,12 +66,24 @@ export function diffPaths(a: unknown, b: unknown, prefix = ''): string[] {
   return paths;
 }
 
+function formatCommand(command: string, args: string[]): string {
+  return [command, ...args].join(' ');
+}
+
 async function verifyOneServer(
   name: string,
   locked: LockedServer,
   spec: ServerSpec,
   timeoutMs: number,
 ): Promise<ServerDriftReport> {
+  // The tools are only trustworthy if they came from the binary that was
+  // approved: swapping the command behind a pinned server name is itself drift,
+  // even when the replacement advertises identical definitions.
+  const lockedCommand = formatCommand(locked.command, locked.args);
+  const liveCommand = formatCommand(spec.command, spec.args);
+  const command =
+    lockedCommand === liveCommand ? null : { locked: lockedCommand, live: liveCommand };
+
   const live = await fetchTools(spec, timeoutMs);
   const liveByName = new Map(live.map((t) => [t.name, canonicalize(t) as ToolDefinition]));
 
@@ -90,8 +102,9 @@ async function verifyOneServer(
     }
   }
 
-  const clean = added.length === 0 && removed.length === 0 && changed.length === 0;
-  return { server: name, added, removed, changed, clean };
+  const clean =
+    command === null && added.length === 0 && removed.length === 0 && changed.length === 0;
+  return { server: name, command, added, removed, changed, clean };
 }
 
 /** Recompute live tool definitions and compare them against the lockfile. */
@@ -105,7 +118,14 @@ export async function verifyServers(
   for (const spec of servers) {
     const locked = lock.servers[spec.name];
     if (!locked) {
-      reports.push({ server: spec.name, added: ['(server missing from lockfile)'], removed: [], changed: [], clean: false });
+      reports.push({
+        server: spec.name,
+        command: null,
+        added: ['(server missing from lockfile)'],
+        removed: [],
+        changed: [],
+        clean: false,
+      });
       continue;
     }
     reports.push(await verifyOneServer(spec.name, locked, spec, timeoutMs));
