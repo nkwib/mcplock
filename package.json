@@ -1,5 +1,5 @@
 {
-  "name": "mcplock",
+  "name": "@nkwib/mcplock",
   "version": "0.1.0",
   "description": "Lockfile-gated integrity pinning for MCP tool definitions. Hash them once, approve them once, fail CI when a server swaps them.",
   "license": "MIT",

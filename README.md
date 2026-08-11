@@ -12,13 +12,13 @@ MCP clients show you a tool's name, description, and schema at approval time. No
 
 ```bash
 # 1. Pin the servers you approved (reads the common .mcp.json shape)
-npx mcplock lock --config .mcp.json
+npx @nkwib/mcplock lock --config .mcp.json
 
 # 2. Review and commit the lockfile
 git add mcp.lock && git commit -m "pin mcp tool definitions"
 
 # 3. Gate on drift (CI, pre-commit, or before every session)
-npx mcplock verify --config .mcp.json
+npx @nkwib/mcplock verify --config .mcp.json
 ```
 
 `verify` exits 1 the moment any pinned server adds, removes, or mutates a tool definition, and tells you exactly which field moved:
@@ -32,15 +32,15 @@ npx mcplock verify --config .mcp.json
 One-off servers work without a config file:
 
 ```bash
-npx mcplock lock --name docs -- npx -y @example/docs-mcp-server
-npx mcplock verify --name docs -- npx -y @example/docs-mcp-server
+npx @nkwib/mcplock lock --name docs -- npx -y @example/docs-mcp-server
+npx @nkwib/mcplock verify --name docs -- npx -y @example/docs-mcp-server
 ```
 
 ### GitHub Actions
 
 ```yaml
 - name: Verify MCP tool definitions
-  run: npx mcplock verify --config .mcp.json
+  run: npx @nkwib/mcplock verify --config .mcp.json
 ```
 
 ## What gets hashed
@@ -81,6 +81,8 @@ Descriptions are included deliberately. They are the primary poisoning vector: m
 
 ## CLI
 
+Installed as a dev dependency (`npm i -D @nkwib/mcplock`), the binary is `mcplock`:
+
 ```
 mcplock <lock|verify> [options] [-- <command> [args...]]
 
@@ -95,13 +97,13 @@ mcplock <lock|verify> [options] [-- <command> [args...]]
 | Exit code | Meaning |
 | --------- | ------- |
 | 0 | Definitions match the lockfile |
-| 1 | Drift detected (added, removed, or changed tools) |
+| 1 | Drift detected (swapped command, or added, removed, or changed tools) |
 | 2 | Operational error (spawn failure, timeout, missing lockfile, bad flags) |
 
 ## Library
 
 ```ts
-import { lockServers, verifyServers } from 'mcplock';
+import { lockServers, verifyServers } from '@nkwib/mcplock';
 
 const lock = await lockServers([{ name: 'docs', command: 'npx', args: ['-y', '@example/docs-mcp-server'] }]);
 const result = await verifyServers(lock, servers);
