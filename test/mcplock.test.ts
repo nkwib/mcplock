@@ -119,7 +119,7 @@ describe('cli', () => {
     const io = { cwd, stdout: (l: string) => out.push(l), stderr: (l: string) => out.push(l) };
     expect(await runCli(['lock', '--name', 'fixture', ...cliFixtureArgs], io)).toBe(0);
     const raw = await readFile(join(cwd, 'mcp.lock'), 'utf8');
-    expect(JSON.parse(raw).version).toBe(1);
+    expect(JSON.parse(raw).version).toBe(2);
     expect(await runCli(['verify', '--name', 'fixture', ...cliFixtureArgs], io)).toBe(0);
     expect(out.join('\n')).toContain('clean');
   });

@@ -1,8 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { McpLockError, type ServerSpec, type ToolDefinition } from './types';
+import { StreamableHttpMcpClient } from './http';
+import { collectTools, PROTOCOL_VERSION, type McpTransport } from './mcp';
+import { isHttpSpec, McpLockError, type ServerSpec, type StdioServerSpec, type ToolDefinition } from './types';
 
-const PROTOCOL_VERSION = '2025-06-18';
-export const CLIENT_INFO = { name: 'mcplock', version: '0.1.0' };
+export { CLIENT_INFO, PROTOCOL_VERSION } from './mcp';
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -15,18 +16,20 @@ interface Pending {
  * line on stdout/stdin). Enough protocol to initialize and list tools,
  * nothing more.
  */
-export class StdioMcpClient {
+export class StdioMcpClient implements McpTransport {
   private child: ChildProcessWithoutNullStreams;
   private pending = new Map<number, Pending>();
   private nextId = 1;
   private buffer = '';
   private stderrTail = '';
   private closed = false;
+  readonly name: string;
 
   constructor(
-    private readonly spec: ServerSpec,
+    private readonly spec: StdioServerSpec,
     private readonly timeoutMs: number,
   ) {
+    this.name = spec.name;
     this.child = spawn(spec.command, spec.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...spec.env },
@@ -68,7 +71,11 @@ export class StdioMcpClient {
       this.pending.delete(msg.id);
       clearTimeout(pending.timer);
       if (msg.error) {
-        pending.reject(new McpLockError(`server "${this.spec.name}" returned JSON-RPC error ${msg.error.code}: ${msg.error.message}`));
+        pending.reject(
+          new McpLockError(`server "${this.spec.name}" returned JSON-RPC error ${msg.error.code}: ${msg.error.message}`, {
+            jsonRpcCode: msg.error.code,
+          }),
+        );
       } else {
         pending.resolve(msg.result);
       }
@@ -83,7 +90,7 @@ export class StdioMcpClient {
     this.pending.clear();
   }
 
-  private request(method: string, params: unknown): Promise<unknown> {
+  request(method: string, params: unknown): Promise<unknown> {
     const id = this.nextId++;
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -96,44 +103,15 @@ export class StdioMcpClient {
     return promise;
   }
 
-  private notify(method: string, params?: unknown): void {
+  async notify(method: string, params?: unknown): Promise<void> {
     this.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, ...(params === undefined ? {} : { params }) }) + '\n');
   }
 
+  /** No-op for stdio: the protocol version is negotiated in-band by initialize. */
+  onInitialized(): void {}
+
   async listAllTools(): Promise<ToolDefinition[]> {
-    await this.request('initialize', {
-      protocolVersion: PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: CLIENT_INFO,
-    });
-    this.notify('notifications/initialized');
-    const tools: ToolDefinition[] = [];
-    let cursor: string | undefined;
-    do {
-      const result = (await this.request('tools/list', cursor === undefined ? {} : { cursor })) as {
-        tools?: unknown[];
-        nextCursor?: string;
-      };
-      if (!Array.isArray(result?.tools)) {
-        throw new McpLockError(`server "${this.spec.name}" returned no tools array from tools/list`);
-      }
-      for (const raw of result.tools) {
-        const t = raw as Record<string, unknown>;
-        if (typeof t.name !== 'string') {
-          throw new McpLockError(`server "${this.spec.name}" returned a tool without a string name`);
-        }
-        tools.push({
-          name: t.name,
-          title: t.title as string | undefined,
-          description: t.description as string | undefined,
-          inputSchema: t.inputSchema,
-          outputSchema: t.outputSchema,
-          annotations: t.annotations,
-        });
-      }
-      cursor = result.nextCursor;
-    } while (cursor !== undefined);
-    return tools;
+    return collectTools(this);
   }
 
   close(): void {
@@ -144,11 +122,14 @@ export class StdioMcpClient {
   }
 }
 
+/** Connect to a server over whichever transport its spec describes, list every tool, disconnect. */
 export async function fetchTools(spec: ServerSpec, timeoutMs: number): Promise<ToolDefinition[]> {
-  const client = new StdioMcpClient(spec, timeoutMs);
+  const client: McpTransport = isHttpSpec(spec)
+    ? new StreamableHttpMcpClient(spec, timeoutMs)
+    : new StdioMcpClient(spec, timeoutMs);
   try {
-    return await client.listAllTools();
+    return await collectTools(client);
   } finally {
-    client.close();
+    await client.close();
   }
 }

@@ -13,11 +13,28 @@ export interface ToolDefinition {
   annotations?: unknown;
 }
 
-export interface ServerSpec {
+/** A local MCP server spawned as a child process, framed over stdio. */
+export interface StdioServerSpec {
   name: string;
+  transport?: 'stdio';
   command: string;
   args: string[];
   env?: Record<string, string>;
+}
+
+/** A remote MCP server reached over the Streamable HTTP transport. */
+export interface HttpServerSpec {
+  name: string;
+  transport?: 'http';
+  url: string;
+  /** Extra request headers, e.g. `{ Authorization: "Bearer ..." }`. Never hashed, never written to the lockfile. */
+  headers?: Record<string, string>;
+}
+
+export type ServerSpec = StdioServerSpec | HttpServerSpec;
+
+export function isHttpSpec(spec: ServerSpec): spec is HttpServerSpec {
+  return typeof (spec as HttpServerSpec).url === 'string';
 }
 
 export interface LockedTool {
@@ -25,15 +42,29 @@ export interface LockedTool {
   definition: ToolDefinition;
 }
 
-export interface LockedServer {
+/** Lockfile entry for a stdio server: the endpoint identity is the argv. */
+export interface LockedStdioServer {
+  transport: 'stdio';
   command: string;
   args: string[];
   rootHash: string;
   tools: Record<string, LockedTool>;
 }
 
+/** Lockfile entry for a remote server: the endpoint identity is the URL. */
+export interface LockedHttpServer {
+  transport: 'http';
+  url: string;
+  rootHash: string;
+  tools: Record<string, LockedTool>;
+}
+
+export type LockedServer = LockedStdioServer | LockedHttpServer;
+
+export const LOCKFILE_VERSION = 2;
+
 export interface LockFile {
-  version: 1;
+  version: typeof LOCKFILE_VERSION;
   generatedAt: string;
   servers: Record<string, LockedServer>;
 }
@@ -44,15 +75,25 @@ export interface ChangedTool {
   paths: string[];
 }
 
-/** The pinned server was reached through a different command than the one locked. */
-export interface CommandDrift {
+/**
+ * The pinned server was reached through a different endpoint than the one
+ * locked: a different command line for stdio, a different URL for HTTP.
+ */
+export interface EndpointDrift {
   locked: string;
   live: string;
 }
 
+/** @deprecated Use `EndpointDrift`. Kept as an alias for 0.1.x consumers. */
+export type CommandDrift = EndpointDrift;
+
 export interface ServerDriftReport {
   server: string;
-  command: CommandDrift | null;
+  transport: 'stdio' | 'http';
+  /** Endpoint identity drift: the locked argv or URL no longer matches the live one. */
+  endpoint: EndpointDrift | null;
+  /** @deprecated Alias of `endpoint`, kept for 0.1.x `--json` consumers. Removed in 0.3. */
+  command: EndpointDrift | null;
   added: string[];
   removed: string[];
   changed: ChangedTool[];

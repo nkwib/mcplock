@@ -1,21 +1,48 @@
 import { canonicalize } from './canonicalize';
 import { hashToolDefinition, rootHash } from './hash';
+import { normalizeUrl } from './http';
 import { fetchTools } from './rpc';
-import type {
-  ChangedTool,
-  LockFile,
-  LockedServer,
-  ServerDriftReport,
-  ServerSpec,
-  ToolDefinition,
-  VerifyResult,
+import {
+  isHttpSpec,
+  LOCKFILE_VERSION,
+  McpLockError,
+  type ChangedTool,
+  type LockFile,
+  type LockedServer,
+  type LockedTool,
+  type ServerDriftReport,
+  type ServerSpec,
+  type ToolDefinition,
+  type VerifyResult,
 } from './types';
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
+/**
+ * The endpoint a pinned server name resolves to. Definitions are only
+ * trustworthy if they came from the endpoint that was approved, so this is
+ * pinned alongside the tools and compared byte for byte on verify.
+ */
+interface Endpoint {
+  transport: 'stdio' | 'http';
+  identity: string;
+}
+
+function specEndpoint(spec: ServerSpec): Endpoint {
+  if (isHttpSpec(spec)) return { transport: 'http', identity: normalizeUrl(spec.url, spec.name) };
+  return { transport: 'stdio', identity: [spec.command, ...spec.args].join(' ') };
+}
+
+function lockedEndpoint(locked: LockedServer): Endpoint {
+  return locked.transport === 'http'
+    ? { transport: 'http', identity: locked.url }
+    : { transport: 'stdio', identity: [locked.command, ...locked.args].join(' ') };
+}
+
 async function lockOneServer(spec: ServerSpec, timeoutMs: number): Promise<LockedServer> {
+  const endpoint = specEndpoint(spec);
   const tools = await fetchTools(spec, timeoutMs);
-  const locked: Record<string, { hash: string; definition: ToolDefinition }> = {};
+  const locked: Record<string, LockedTool> = {};
   const hashes: string[] = [];
   for (const tool of [...tools].sort((a, b) => a.name.localeCompare(b.name))) {
     const definition = canonicalize(tool) as ToolDefinition;
@@ -23,7 +50,11 @@ async function lockOneServer(spec: ServerSpec, timeoutMs: number): Promise<Locke
     locked[tool.name] = { hash, definition };
     hashes.push(hash);
   }
-  return { command: spec.command, args: spec.args, rootHash: await rootHash(hashes), tools: locked };
+  const root = await rootHash(hashes);
+  if (isHttpSpec(spec)) {
+    return { transport: 'http', url: endpoint.identity, rootHash: root, tools: locked };
+  }
+  return { transport: 'stdio', command: spec.command, args: spec.args, rootHash: root, tools: locked };
 }
 
 /** Connect to every server, list tools, and produce a lockfile object. */
@@ -36,7 +67,7 @@ export async function lockServers(
   for (const spec of servers) {
     locked[spec.name] = await lockOneServer(spec, timeoutMs);
   }
-  return { version: 1, generatedAt: new Date().toISOString(), servers: locked };
+  return { version: LOCKFILE_VERSION, generatedAt: new Date().toISOString(), servers: locked };
 }
 
 /** Leaf-level dot paths where two canonicalized values differ. */
@@ -66,23 +97,23 @@ export function diffPaths(a: unknown, b: unknown, prefix = ''): string[] {
   return paths;
 }
 
-function formatCommand(command: string, args: string[]): string {
-  return [command, ...args].join(' ');
-}
-
 async function verifyOneServer(
   name: string,
   locked: LockedServer,
   spec: ServerSpec,
   timeoutMs: number,
 ): Promise<ServerDriftReport> {
-  // The tools are only trustworthy if they came from the binary that was
-  // approved: swapping the command behind a pinned server name is itself drift,
-  // even when the replacement advertises identical definitions.
-  const lockedCommand = formatCommand(locked.command, locked.args);
-  const liveCommand = formatCommand(spec.command, spec.args);
-  const command =
-    lockedCommand === liveCommand ? null : { locked: lockedCommand, live: liveCommand };
+  // The tools are only trustworthy if they came from the endpoint that was
+  // approved: swapping the command or the URL behind a pinned server name is
+  // itself drift, even when the replacement advertises identical definitions.
+  const lockedEnd = lockedEndpoint(locked);
+  const liveEnd = specEndpoint(spec);
+  // Only qualify with the transport name when the transport itself changed,
+  // so the common same-transport report stays terse.
+  const qualify = lockedEnd.transport !== liveEnd.transport;
+  const label = (e: Endpoint) => (qualify ? `${e.transport}: ${e.identity}` : e.identity);
+  const sameEndpoint = !qualify && lockedEnd.identity === liveEnd.identity;
+  const endpoint = sameEndpoint ? null : { locked: label(lockedEnd), live: label(liveEnd) };
 
   const live = await fetchTools(spec, timeoutMs);
   const liveByName = new Map(live.map((t) => [t.name, canonicalize(t) as ToolDefinition]));
@@ -103,8 +134,17 @@ async function verifyOneServer(
   }
 
   const clean =
-    command === null && added.length === 0 && removed.length === 0 && changed.length === 0;
-  return { server: name, command, added, removed, changed, clean };
+    endpoint === null && added.length === 0 && removed.length === 0 && changed.length === 0;
+  return {
+    server: name,
+    transport: liveEnd.transport,
+    endpoint,
+    command: endpoint,
+    added,
+    removed,
+    changed,
+    clean,
+  };
 }
 
 /** Recompute live tool definitions and compare them against the lockfile. */
@@ -120,6 +160,8 @@ export async function verifyServers(
     if (!locked) {
       reports.push({
         server: spec.name,
+        transport: specEndpoint(spec).transport,
+        endpoint: null,
         command: null,
         added: ['(server missing from lockfile)'],
         removed: [],
@@ -137,10 +179,49 @@ export function serializeLockFile(lock: LockFile): string {
   return JSON.stringify(lock, null, 2) + '\n';
 }
 
-export function parseLockFile(raw: string): LockFile {
-  const parsed = JSON.parse(raw) as LockFile;
-  if (parsed.version !== 1 || typeof parsed.servers !== 'object' || parsed.servers === null) {
-    throw new Error('unsupported or malformed mcp.lock (expected version 1)');
+interface LockFileV1 {
+  version: 1;
+  generatedAt: string;
+  servers: Record<string, { command: string; args: string[]; rootHash: string; tools: Record<string, LockedTool> }>;
+}
+
+/**
+ * Version 1 predates HTTP: every entry was a stdio server recorded as
+ * `command`/`args`, so the upgrade is lossless and applied on read. `mcplock
+ * lock` rewrites the file at version 2.
+ */
+function migrateV1(v1: LockFileV1): LockFile {
+  const servers: Record<string, LockedServer> = {};
+  for (const [name, entry] of Object.entries(v1.servers)) {
+    if (typeof entry?.command !== 'string' || !Array.isArray(entry.args)) {
+      throw new McpLockError(`malformed mcp.lock: version 1 server "${name}" has no command/args to migrate`);
+    }
+    servers[name] = {
+      transport: 'stdio',
+      command: entry.command,
+      args: entry.args,
+      rootHash: entry.rootHash,
+      tools: entry.tools,
+    };
   }
-  return parsed;
+  return { version: LOCKFILE_VERSION, generatedAt: v1.generatedAt, servers };
+}
+
+export function parseLockFile(raw: string): LockFile {
+  let parsed: { version?: unknown; servers?: unknown };
+  try {
+    parsed = JSON.parse(raw) as LockFile;
+  } catch (err) {
+    throw new McpLockError(`malformed mcp.lock: ${(err as Error).message}`);
+  }
+  if (typeof parsed.servers !== 'object' || parsed.servers === null) {
+    throw new McpLockError('malformed mcp.lock: missing a "servers" object');
+  }
+  if (parsed.version === 1) return migrateV1(parsed as unknown as LockFileV1);
+  if (parsed.version !== LOCKFILE_VERSION) {
+    throw new McpLockError(
+      `unsupported mcp.lock version ${String(parsed.version)}: this mcplock reads versions 1 and ${LOCKFILE_VERSION}, upgrade mcplock or re-run \`mcplock lock\``,
+    );
+  }
+  return parsed as unknown as LockFile;
 }

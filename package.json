@@ -1,6 +1,6 @@
 {
   "name": "@nkwib/mcplock",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lockfile-gated integrity pinning for MCP tool definitions. Hash them once, approve them once, fail CI when a server swaps them.",
   "license": "MIT",
   "type": "module",
@@ -22,6 +22,7 @@
   "files": [
     "dist",
     "src",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
@@ -40,7 +41,8 @@
     "integrity",
     "rug-pull",
     "tool-poisoning",
-    "supply-chain"
+    "supply-chain",
+    "streamable-http"
   ],
   "homepage": "https://github.com/nkwib/mcplock#readme",
   "repository": {
