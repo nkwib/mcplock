@@ -182,4 +182,12 @@ The test suite drives a fixture HTTP server written in this repo, which proves t
 
 Still only fixture-tested, not confirmed against a real server: `application/json` response framing (every public server tried chose SSE), session expiry returning 404 and the re-initialize-and-replay path that follows, `tools/list` cursor pagination over HTTP, and authenticated servers reached through `headers`.
 
+## Releasing
+
+1. Bump the version in `package.json` and add a section to `CHANGELOG.md`.
+2. Tag the release commit `vX.Y.Z` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. `.github/workflows/release.yml` builds, tests, checks the tag against `package.json`, and publishes to npm with provenance.
+
+One-time setup on npmjs.com: add a Trusted Publisher on the `@nkwib/mcplock` package with publisher `GitHub Actions`, repository `nkwib/mcplock`, and workflow `release.yml`.
+
 MIT
