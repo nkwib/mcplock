@@ -196,4 +196,12 @@ mcplock is a zero-dependency TypeScript lockfile for tool definitions: hash once
 
 [Snyk Agent Scan](https://github.com/snyk/agent-scan) (~3k stars; published as `invariantlabs-ai/mcp-scan` before the repo moved to the Snyk org) is a broad security scanner: it inspects MCP tools, prompts, resources, and agent skills for prompt injection, tool poisoning, and toxic flows, and requires a Snyk account and API token to run. [toolprint](https://github.com/jestatsio/toolprint) is closer to mcplock's model: it pins tools, prompts, resources, and resource templates into a committed `toolprint.lock`, ships a composite GitHub Action (`jestatsio/toolprint@v1`) for CI, and layers tool-poisoning and secret-leak scanning on top of the pin. Pick mcplock for the smallest possible CI gate on tool-definition drift, with no runtime dependencies and no external account. Pick Snyk Agent Scan for broad scanning across tools, prompts, resources, and skills if a hosted account is acceptable. Pick toolprint if you want prompt and resource pinning bundled with poisoning scanning and a ready-made GitHub Action.
 
+## Releasing
+
+1. Bump the version in `package.json` and add a section to `CHANGELOG.md`.
+2. Tag the release commit `vX.Y.Z` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. `.github/workflows/release.yml` builds, tests, checks the tag against `package.json`, and publishes to npm with provenance.
+
+One-time setup on npmjs.com: add a Trusted Publisher on the `@nkwib/mcplock` package with publisher `GitHub Actions`, repository `nkwib/mcplock`, and workflow `release.yml`.
+
 MIT
