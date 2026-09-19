@@ -170,7 +170,7 @@ Revision [2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/c
 
 ## Scope and limitations
 
-- Pins tools only; prompts and resources surfaces are planned.
+- Pins tools only; prompts and resources are not implemented (see [How mcplock compares](#how-mcplock-compares)).
 - Streamable HTTP only for remote servers. The deprecated 2024-11-05 HTTP+SSE transport (`"type": "sse"`) is rejected with a clear message rather than silently probed for.
 - The standalone `GET` SSE stream and `Last-Event-ID` resumability are not implemented: pinning needs one request/response pair, not a long-lived stream.
 - `env` values from the config are passed to the spawned server but are not part of the hash. Neither are `headers`.
@@ -181,6 +181,20 @@ Revision [2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/c
 The test suite drives a fixture HTTP server written in this repo, which proves the client agrees with an implementation written by the same author. That is worth less than it looks, so the transport was also run against real public remote MCP servers. Confirmed live: SSE-framed responses, session id issuance and echo, protocol version negotiation including a downgrade to 2025-03-26, `DELETE` answered with 405 and treated as a clean teardown, a 401 surfaced as a readable error, and a redirect refused (a trailing slash on one endpoint redirects to plain `http://`, which is exactly the case for not following).
 
 Still only fixture-tested, not confirmed against a real server: `application/json` response framing (every public server tried chose SSE), session expiry returning 404 and the re-initialize-and-replay path that follows, `tools/list` cursor pagination over HTTP, and authenticated servers reached through `headers`.
+
+## How mcplock compares
+
+mcplock is a zero-dependency TypeScript lockfile for tool definitions: hash once, gate on drift in CI, nothing else. No scanning, no proxy, no server-side component.
+
+| | mcplock | Snyk Agent Scan (formerly mcp-scan) | toolprint |
+| --- | --- | --- | --- |
+| Language | TypeScript | Python | TypeScript |
+| Distribution | npm, zero runtime deps | PyPI / standalone binary, needs a Snyk account and API token | npm |
+| Covers | Tools only | Tools, prompts, resources, skills | Tools, prompts, resources, resource templates, skill bundles |
+| Approach | Hash pin, CI drift gate | Prompt-injection / tool-poisoning / toxic-flow scanning | Hash pin and CI drift gate, plus poisoning and secret-leak scanning |
+| Repo | [nkwib/mcplock](https://github.com/nkwib/mcplock) | [snyk/agent-scan](https://github.com/snyk/agent-scan) | [jestatsio/toolprint](https://github.com/jestatsio/toolprint) |
+
+[Snyk Agent Scan](https://github.com/snyk/agent-scan) (~3k stars; published as `invariantlabs-ai/mcp-scan` before the repo moved to the Snyk org) is a broad security scanner: it inspects MCP tools, prompts, resources, and agent skills for prompt injection, tool poisoning, and toxic flows, and requires a Snyk account and API token to run. [toolprint](https://github.com/jestatsio/toolprint) is closer to mcplock's model: it pins tools, prompts, resources, and resource templates into a committed `toolprint.lock`, ships a composite GitHub Action (`jestatsio/toolprint@v1`) for CI, and layers tool-poisoning and secret-leak scanning on top of the pin. Pick mcplock for the smallest possible CI gate on tool-definition drift, with no runtime dependencies and no external account. Pick Snyk Agent Scan for broad scanning across tools, prompts, resources, and skills if a hosted account is acceptable. Pick toolprint if you want prompt and resource pinning bundled with poisoning scanning and a ready-made GitHub Action.
 
 ## Releasing
 
