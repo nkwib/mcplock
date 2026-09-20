@@ -202,6 +202,6 @@ mcplock is a zero-dependency TypeScript lockfile for tool definitions: hash once
 2. Tag the release commit `vX.Y.Z` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. `.github/workflows/release.yml` builds, tests, checks the tag against `package.json`, and publishes to npm with provenance.
 
-One-time setup on npmjs.com: add a Trusted Publisher on the `@nkwib/mcplock` package with publisher `GitHub Actions`, repository `nkwib/mcplock`, and workflow `release.yml`.
+One-time setup on npmjs.com: add a Trusted Publisher on the `@nkwib/mcplock` package with publisher `GitHub Actions`, repository `nkwib/mcplock`, and workflow `release.yml`. Under Allowed actions, enable `npm publish` as well: a new trusted publisher only allows `npm stage publish` by default, and the direct `npm publish` in the workflow then fails with `403 OIDC permission denied for this action`. Set this when you create the connection: npm does not allow editing a trusted publisher afterwards, so a stage-only connection has to be deleted and added again.
 
 MIT
